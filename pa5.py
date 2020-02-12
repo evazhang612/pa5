@@ -16,6 +16,8 @@ def img_preprocess(img):
 	# Task 1: Preprocess image using dlib
 	# TODO: Use the face bounding box output by dlib to crop the image
 	# and resize the resulting crop to 256 x 256 x 3.
+	if len(detections) == 0:
+		return None
 	d = detections[0]
 	crop = img[d.top():d.bottom(), d.left():d.right()]
 	resized_img = cv2.resize(crop, (int(256), int(256)))
@@ -39,12 +41,12 @@ def train(results):
 	# Y_train = # Should have shape (16, 64, 64, 68)
 	# X_val = # Should have shape (2, 256, 256, 3)
 	# Y_val = # Should have shape (2, 64, 64, 68)
-	X_train = np.array([img_preprocess(img) for img in results['images_train'][:16]])
-	Y_train = np.array([lm_preprocess(lm) for lm in results['landmarks_train'][:16]])
-	X_val = np.array([img_preprocess(img) for img in results['images_val'][:2]])
-	Y_val = np.array([lm_preprocess(lm) for lm in results['landmarks_val'][:2]])
-	X_test = np.array([img_preprocess(img) for img in results['images_test'][:1]])
-	Y_test = np.array([lm_preprocess(lm) for lm in results['landmarks_test'][:1]])
+	X_train = np.array([img_preprocess(img) for img in results['images_train']][:16])
+	Y_train = np.array([lm_preprocess(lm) for idx, lm in enumerate(results['landmarks_train']) if X_train[idx] is not None][:16])
+	X_val = np.array([img_preprocess(img) for img in results['images_val']][:2])
+	Y_val = np.array([lm_preprocess(lm) for idx,lm in enumerate(results['landmarks_val']) if X_val[idx] is not None][:2])
+	X_test = np.array([img_preprocess(img) for img in results['images_test']][:1])
+	Y_test = np.array([lm_preprocess(lm) for idx, lm in enumerate(results['landmarks_test']) if X_test[idx] is not None ][:1])
 
 	X_train = tf.convert_to_tensor(X_train/255.0, dtype=tf.float64)
 	Y_train = tf.convert_to_tensor(Y_train, dtype=tf.float64)
