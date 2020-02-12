@@ -45,7 +45,7 @@ def train(results):
 	Y_val = np.array([lm_preprocess(lm) for lm in results['landmarks_val'][:2]])
 	X_test = np.array([img_preprocess(img) for img in results['images_test'][:1]])
 	Y_test = np.array([lm_preprocess(lm) for lm in results['landmarks_test'][:1]])
-	
+
 	X_train = tf.convert_to_tensor(X_train/255.0, dtype=tf.float64)
 	Y_train = tf.convert_to_tensor(Y_train, dtype=tf.float64)
 	X_val = tf.convert_to_tensor(X_val/255.0, dtype=tf.float64)
@@ -86,4 +86,4 @@ model.summary()
 results = load_data()
 # preprocessed_results = batch_preprocess(results)
 
-train(preprocessed_results)
+train(results)
