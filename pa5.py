@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 
 # Task 2 see load_data.py
 # Task 3 
-def img_preprocess(img):
+def preprocess(img, landmarks):
 	face_detector = dlib.get_frontal_face_detector()
 	# img = cv2.imread(PATH_TO_IMAGE)
 	detections = face_detector(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY))
@@ -21,17 +21,14 @@ def img_preprocess(img):
 	d = detections[0]
 	crop = img[d.top():d.bottom(), d.left():d.right()]
 	resized_img = cv2.resize(crop, (int(256), int(256)))
-
-	return resized_img
-
-def lm_preprocess(landmark):
+	
 	# Task 2: Preprocess ground truth landmarks
 	resize_ratio = 256/d.width()
 	# mat = scipy.io.loadmat(PATH_TO_LANDMARKS)
 	# landmarks = np.array(mat['pts_2d'])
 	translate = np.array([d.left(), d.top()])
 	resized_landmarks = np.round(resize_ratio * (landmarks - translate))
-	return resized_landmark
+	return (resized_img, resized_landmarks)
 
 # Task 4 
 def train(results):
@@ -41,12 +38,19 @@ def train(results):
 	# Y_train = # Should have shape (16, 64, 64, 68)
 	# X_val = # Should have shape (2, 256, 256, 3)
 	# Y_val = # Should have shape (2, 64, 64, 68)
-	X_train = np.array([img_preprocess(img) for img in results['images_train']][:16])
-	Y_train = np.array([lm_preprocess(lm) for idx, lm in enumerate(results['landmarks_train']) if X_train[idx] is not None][:16])
-	X_val = np.array([img_preprocess(img) for img in results['images_val']][:2])
-	Y_val = np.array([lm_preprocess(lm) for idx,lm in enumerate(results['landmarks_val']) if X_val[idx] is not None][:2])
-	X_test = np.array([img_preprocess(img) for img in results['images_test']][:1])
-	Y_test = np.array([lm_preprocess(lm) for idx, lm in enumerate(results['landmarks_test']) if X_test[idx] is not None ][:1])
+	train = [preprocess(img, lm) for img,lm in zip(results['images_train'], results['landmarks_train']) if preprocess(img, lm) is not None][:16]
+	val = [preprocess(img, lm) for img,lm in zip(results['images_val'], results['landmarks_val']) if preprocess(img, lm) is not None][:2]
+	test = [preprocess(img, lm) for img,lm in zip(results['images_test'], results['landmarks_test'])  if preprocess(img, lm) is not None][:1]
+	X_train, Y_train = zip(*train)
+	X_val, Y_val = zip(*val)
+	X_test, Y_test = zip(*test) 
+
+	X_train = np.array(X_train)
+	Y_train = np.array(Y_train)
+	X_val = np.array(X_val)
+	Y_val = np.array(Y_val)
+	X_test = np.array(X_test)
+	Y_test = np.array(Y_test)
 
 	X_train = tf.convert_to_tensor(X_train/255.0, dtype=tf.float64)
 	Y_train = tf.convert_to_tensor(Y_train, dtype=tf.float64)
