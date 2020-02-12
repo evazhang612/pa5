@@ -35,4 +35,5 @@ def load_data():
 	results['landmarks_test'] = landmarks[int(0.9*N):]
 	return results
 
-print(images_train.shape)
+results = load_data()
+print(results['images_train'].shape)

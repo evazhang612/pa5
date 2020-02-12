@@ -2,7 +2,7 @@ import tensorflow as tf
 import numpy as np
 from model import *
 from load_data import *
-
+import dlib
 import matplotlib.pyplot as plt
 
 # Task 2 see load_data.py
