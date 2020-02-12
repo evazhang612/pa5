@@ -58,13 +58,12 @@ def train(results):
 	plot(history)
 
 def plot(history):
-	plt.plot(history.history[’loss’], label=’Training’)
-	plt.plot(history.history[’val_loss’], label=’Validation’)
-	plt.xlabel(’Epoch’)
-	plt.ylabel(’Loss’)
+	plt.plot(history.history['loss'], label='Training')
+	plt.plot(history.history['val_loss'], label='Validation')
+	plt.xlabel('Epoch')
+	plt.ylabel('Loss')
 	plt.legend()
 	plt.show()
-
 
 # Task 1 
 model = FAN(4)
