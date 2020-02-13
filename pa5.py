@@ -44,23 +44,29 @@ def generate_heatmaps(resized_landmarks):
 
 def preprocess(img, landmarks):
 	face_detector = dlib.get_frontal_face_detector()
-	detections = face_detector(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY))
-	boxes = [[d.left(), d.top(), d.right(), d.bottom()] for d in detections]
-	
-	# Task 1: Preprocess image using dlib
-	if len(detections) == 0:
-		return None
-	d = detections[0]
-	crop = img[d.top():d.bottom(), d.left():d.right()]
-	resized_img = cv2.resize(crop, (int(256), int(256)))
-	
-	# Task 2: Preprocess ground truth landmarks
-	resize_ratio = 256/d.width()
-	translate = np.array([d.left(), d.top()])
-	resized_landmarks = np.round(resize_ratio * (landmarks - translate))
-	heatmaps = generate_heatmaps(resized_landmarks)
-	
-	return (resized_img, resized_landmarks, heatmaps)
+    detections = face_detector(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY))
+    boxes = [[d.left(), d.top(), d.right(), d.bottom()] for d in detections]
+
+    resized_img = None
+    resized_landmarks = None
+    heatmaps = None
+
+    # Task 1: Preprocess image using dlib
+    if img is not None :
+        if len(detections) == 0:
+            return None
+        d = detections[0]
+        crop = img[d.top():d.bottom(), d.left():d.right()]
+        resized_img = cv2.resize(crop, (int(256), int(256)))
+
+    # Task 2: Preprocess ground truth landmarks
+    if landmarks is not None:
+        resize_ratio = 256/d.width()
+        translate = np.array([d.left(), d.top()])
+        resized_landmarks = np.round(resize_ratio * (landmarks - translate))
+        heatmaps = generate_heatmaps(resized_landmarks)
+
+    return (resized_img, resized_landmarks, heatmaps)
 
 def batch_preprocess(img_data, landmark_data, n):
 	counter = 0
@@ -118,7 +124,7 @@ def test(model, X_test, Y_test):
 
 	# Use 4th hourglass module element as heatmap prediction
 	# preds[i] has shape: (1, 64, 64, 68), heatmap_preds has shape: (64, 64, 68)
-	heatmap_preds = preds[2][0, :, :, :] #TODO: change this to 3 after training
+	heatmap_preds = preds[3][0, :, :, :] #TODO: change this to 3 after training
 	# print(heatmap_preds.shape)
 
 	# Argmax to convert heatmaps to landmarks
@@ -130,16 +136,8 @@ def test(model, X_test, Y_test):
 	landmark_preds = np.array(landmark_preds)
 	# print(landmark_preds.shape)
 
-	#face_detector = dlib.get_frontal_face_detector()
-	#detections = face_detector(cv2.cvtColor(orig_img, cv2.COLOR_BGR2GRAY))
-	#d = detections[0]
-
-	#resize_ratio = 450/256
-	#translate = np.array([d.left(), d.top()])
-	#resized_landmarks = np.round(resize_ratio * (landmark_preds + translate))
-	resize_ratio = 256/64
-	resized_landmarks = resize_ratio * landmark_preds
-	plot_visual(X_test[0, :, :, :], resized_landmarks[:, 0], resized_landmarks[:, 1], 'test_smallpredlm_plot.png')
+	# On 64 x 64 scale
+	return landmark_preds
 
 def main():
 	# Task 1
@@ -158,17 +156,51 @@ def main():
 	#print(X_test.shape, Y_test.shape)
 
 	# Task 4
-	# model = train(model, X_train, Y_train, X_val, Y_val)
+	model = train(model, X_train, Y_train, X_val, Y_val)
 
 	# Task 5
-	# model = tf.keras.models.load_model('/trained_model')
-	test(model, X_test, Y_test)
+	landmark_preds = test(model, X_test, Y_test)
 
 	orig_img = results['images_test'][ind_test[0]]
 	orig_lms = results['landmarks_test'][ind_test[0]]
-	(resized_img, resized_lms, heatmaps) = preprocess(orig_img, orig_lms)
-	plot_visual(resized_img, resized_lms[:, 0], resized_lms[:, 1], 'test_smallgtlm_plot.png')
+
+	# Get bounding box size for test image for rescaling up
+	face_detector = dlib.get_frontal_face_detector()
+	detections = face_detector(cv2.cvtColor(orig_img, cv2.COLOR_BGR2GRAY))
+	d = detections[0]
+
+	# Plot predicted landmarks on original image
+	resize_ratio = d.width()/64
+	translate = np.array([d.left(), d.top()])
+	resized_landmarks = np.round((resize_ratio * landmark_preds) + translate)
+	plot_visual(orig_img, resized_landmarks[:, 0], resized_landmarks[:, 1], 'test_predlm_plot.png')
+
+	# Optional ground truth landmark plot
 	plot_visual(orig_img, orig_lms[:, 0], orig_lms[:, 1], 'test_gtlm_plot.png')
+
+	# Sanity check on 256 x 256 ground truth landmark plot and pred landmark plot
+	# (resized_img, resized_lms, heatmaps) = preprocess(orig_img, orig_lms)
+	# resize_ratio = 256/64
+	# resized_landmarks = resize_ratio * landmark_preds
+	# plot_visual(resized_img, resized_lms[:, 0], resized_lms[:, 1], 'test_smallgtlm_plot.png')
+	# plot_visual(X_test[0, :, :, :], resized_landmarks[:, 0], resized_landmarks[:, 1], 'test_smallpredlm_plot.png')
+
+	# Extra Credit
+	sanders_img = cv2.imread('sanders.png')
+	sanders_test = np.array([preprocess(sanders_img, None)[0]])
+
+	sanders_landmark_preds = test(model, sanders_test)
+
+	# Get bounding box size for sanders image for rescaling up
+	face_detector = dlib.get_frontal_face_detector()
+	detections = face_detector(cv2.cvtColor(sanders_img, cv2.COLOR_BGR2GRAY))
+	d = detections[0]
+
+	# Plot predicted landmarks on original image
+	resize_ratio = d.width()/64
+	translate = np.array([d.left(), d.top()])
+	resized_landmarks = np.round((resize_ratio * sanders_landmark_preds) + translate)
+	plot_visual(sanders_img, resized_landmarks[:, 0], resized_landmarks[:, 1], 'sanders_predlm_plot.png')
 
 if __name__ == "__main__":
 	main()
