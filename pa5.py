@@ -3,19 +3,51 @@ import numpy as np
 from model import *
 from load_data import *
 import dlib
+import math
 import matplotlib.pyplot as plt
 
-# Task 2 see load_data.py
-# Task 3 
+def init_model():
+	# Task 1 
+	model = FAN(4)
+	model.build((1,256,256,3))
+	model.load_weights("tf_fan_2D_3layers.h5")
+
+	model.base.trainable = False # Freezes the weights for the base module
+	for i in range(3):
+		# TODO: Freeze the weights for the first 3 hourglass modules
+		# Each hourglass module is composed of elements from
+		# model.hgs, model.ls, model.split_as, model.split_bs
+		model.hgs[i].trainable = False 
+		model.ls[i].trainable = False 
+		model.split_as[i].trainable = False 
+		model.split_bs[i].trainable = False 
+
+	model.compile(optimizer='adam', loss='mean_squared_error')
+	model.summary()
+
+	return model
+
+def heatmap_k(x_k, y_k, k):
+	return np.array([math.exp(-((x - x_k)**2 + (y - y_k)**2)) for x in range(64) for y in range(64)]).reshape((64, 64))
+
+def generate_heatmaps(resized_landmarks):
+	resize_ratio = 64/256
+	heatmap_landmarks = np.round(resize_ratio * resized_landmarks)
+	heatmaps = []
+	for k in range(heatmap_landmarks.shape[0]):
+		x_k = heatmap_landmarks[k, 0]
+		y_k = heatmap_landmarks[k, 1]
+		heatmap = heatmap_k(x_k, y_k, k)
+		heatmaps.append(heatmap)
+	heatmaps = np.array(heatmaps).reshape((64, 64, 68))
+	return heatmaps
+
 def preprocess(img, landmarks):
 	face_detector = dlib.get_frontal_face_detector()
-	# img = cv2.imread(PATH_TO_IMAGE)
 	detections = face_detector(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY))
 	boxes = [[d.left(), d.top(), d.right(), d.bottom()] for d in detections]
 	
 	# Task 1: Preprocess image using dlib
-	# TODO: Use the face bounding box output by dlib to crop the image
-	# and resize the resulting crop to 256 x 256 x 3.
 	if len(detections) == 0:
 		return None
 	d = detections[0]
@@ -24,71 +56,119 @@ def preprocess(img, landmarks):
 	
 	# Task 2: Preprocess ground truth landmarks
 	resize_ratio = 256/d.width()
-	# mat = scipy.io.loadmat(PATH_TO_LANDMARKS)
-	# landmarks = np.array(mat['pts_2d'])
 	translate = np.array([d.left(), d.top()])
 	resized_landmarks = np.round(resize_ratio * (landmarks - translate))
-	return (resized_img, resized_landmarks)
+	heatmaps = generate_heatmaps(resized_landmarks)
+	
+	return (resized_img, resized_landmarks, heatmaps)
 
-# Task 4 
-def train(results):
-	# Prepare data for training
-	# @Lucia, this should work from batch preprocess, feel free to change it 
-	# X_train = results[''] # Should have shape (16, 256, 256, 3)
-	# Y_train = # Should have shape (16, 64, 64, 68)
-	# X_val = # Should have shape (2, 256, 256, 3)
-	# Y_val = # Should have shape (2, 64, 64, 68)
-	train = [preprocess(img, lm) for img,lm in zip(results['images_train'], results['landmarks_train']) if preprocess(img, lm) is not None][:16]
-	val = [preprocess(img, lm) for img,lm in zip(results['images_val'], results['landmarks_val']) if preprocess(img, lm) is not None][:2]
-	test = [preprocess(img, lm) for img,lm in zip(results['images_test'], results['landmarks_test'])  if preprocess(img, lm) is not None][:1]
-	X_train, Y_train = zip(*train)
-	X_val, Y_val = zip(*val)
-	X_test, Y_test = zip(*test) 
+def batch_preprocess(img_data, landmark_data, n):
+	counter = 0
+	img_store = []
+	hm_store = []
+	ind_store = []
+	for index, (img, lm) in enumerate(zip(img_data, landmark_data)):
+		processed_data = preprocess(img, lm)
+		if processed_data:
+			(resized_img, resized_landmarks, heatmaps) = processed_data
+			img_store.append(resized_img)
+			hm_store.append(heatmaps)
+			ind_store.append(index)
+			counter += 1
+		if counter >= n:
+			break
+	return (np.array(img_store), np.array(hm_store), ind_store)
 
-	X_train = np.array(X_train)
-	Y_train = np.array(Y_train)
-	X_val = np.array(X_val)
-	Y_val = np.array(Y_val)
-	X_test = np.array(X_test)
-	Y_test = np.array(Y_test)
-
-	X_train = tf.convert_to_tensor(X_train/255.0, dtype=tf.float64)
-	Y_train = tf.convert_to_tensor(Y_train, dtype=tf.float64)
-	X_val = tf.convert_to_tensor(X_val/255.0, dtype=tf.float64)
-	Y_val = tf.convert_to_tensor(Y_val, dtype=tf.float64)
-	# Format the labels correctly for 2D-FAN
-	Y_train = [Y_train for i in range(4)]
-	Y_val = [Y_val for i in range(4)]
-	# Train model
-	history = model.fit(X_train, Y_train, epochs=30, validation_data=(X_val, Y_val))
-	plot(history)
-
-def plot(history):
+def plot_loss(history, filename):
 	plt.plot(history.history['loss'], label='Training')
 	plt.plot(history.history['val_loss'], label='Validation')
 	plt.xlabel('Epoch')
 	plt.ylabel('Loss')
 	plt.legend()
-	plt.show()
+	plt.savefig(filename)
+	# plt.show()
+	plt.close()
+ 
+def train(model, X_train, Y_train, X_val, Y_val):
+	X_train = tf.convert_to_tensor(X_train/255.0, dtype=tf.float64)
+	Y_train = tf.convert_to_tensor(Y_train, dtype=tf.float64)
+	X_val = tf.convert_to_tensor(X_val/255.0, dtype=tf.float64)
+	Y_val = tf.convert_to_tensor(Y_val, dtype=tf.float64)
+	
+	# Format the labels correctly for 2D-FAN
+	Y_train = [Y_train for i in range(4)]
+	Y_val = [Y_val for i in range(4)]
+	
+	# Train model
+	history = model.fit(X_train, Y_train, epochs=30, validation_data=(X_val, Y_val))
+	plot_loss(history, 'train_val_loss.png')
 
-# Task 1 
-model = FAN(4)
-model.build((1,256,256,3))
-model.load_weights("tf_fan_2D_3layers.h5")
+	return model
 
-model.base.trainable = False # Freezes the weights for the base module
-for i in range(3):
-	# TODO: Freeze the weights for the first 3 hourglass modules
-	# Each hourglass module is composed of elements from
-	# model.hgs, model.ls, model.split_as, model.split_bs
-	model.hgs[i].trainable = False 
-	model.ls[i].trainable = False 
-	model.split_as[i].trainable = False 
-	model.split_bs[i].trainable = False 
+def plot_visual(img_data, lm_xs, lm_ys, filename):
+	img_data = cv2.cvtColor(img_data, cv2.COLOR_BGR2RGB)
+	plt.imshow(img_data)
+	plt.scatter(lm_xs, lm_ys, c='r', marker='.')
+	plt.savefig(filename)
+	plt.close()
 
-model.compile(optimizer='adam', loss='mean_squared_error')
-model.summary()
-results = load_data()
-# preprocessed_results = batch_preprocess(results)
+def test(model, X_test, Y_test):
+	img = tf.convert_to_tensor(X_test/255.0, dtype=tf.float64)
+	preds = model(img)
 
-train(results)
+	# Use 4th hourglass module element as heatmap prediction
+	# preds[i] has shape: (1, 64, 64, 68), heatmap_preds has shape: (64, 64, 68)
+	heatmap_preds = preds[2][0, :, :, :] #TODO: change this to 3 after training
+	# print(heatmap_preds.shape)
+
+	# Argmax to convert heatmaps to landmarks
+	landmark_preds = []
+	for k in range(heatmap_preds.shape[2]):
+		heatmap_pred = heatmap_preds[:, :, k]
+		ind = np.unravel_index(np.argmax(heatmap_pred, axis=None), heatmap_pred.shape)
+		landmark_preds.append(list(ind))
+	landmark_preds = np.array(landmark_preds)
+	# print(landmark_preds.shape)
+
+	#face_detector = dlib.get_frontal_face_detector()
+	#detections = face_detector(cv2.cvtColor(orig_img, cv2.COLOR_BGR2GRAY))
+	#d = detections[0]
+
+	#resize_ratio = 450/256
+	#translate = np.array([d.left(), d.top()])
+	#resized_landmarks = np.round(resize_ratio * (landmark_preds + translate))
+	resize_ratio = 256/64
+	resized_landmarks = resize_ratio * landmark_preds
+	plot_visual(X_test[0, :, :, :], resized_landmarks[:, 0], resized_landmarks[:, 1], 'test_smallpredlm_plot.png')
+
+def main():
+	# Task 1
+	model = init_model()
+
+	# Task 2 (see load_data.py)
+	results = load_data()
+
+	# Task 3
+	# Prepare data for training
+	(X_train, Y_train, ind_train) = batch_preprocess(results['images_train'], results['landmarks_train'], 16)
+	(X_val, Y_val, ind_val) = batch_preprocess(results['images_val'], results['landmarks_val'], 2)
+	(X_test, Y_test, ind_test) = batch_preprocess(results['images_test'], results['landmarks_test'], 1)
+	#print(X_train.shape, Y_train.shape)
+	#print(X_val.shape, Y_val.shape)
+	#print(X_test.shape, Y_test.shape)
+
+	# Task 4
+	# model = train(model, X_train, Y_train, X_val, Y_val)
+
+	# Task 5
+	# model = tf.keras.models.load_model('/trained_model')
+	test(model, X_test, Y_test)
+
+	orig_img = results['images_test'][ind_test[0]]
+	orig_lms = results['landmarks_test'][ind_test[0]]
+	(resized_img, resized_lms, heatmaps) = preprocess(orig_img, orig_lms)
+	plot_visual(resized_img, resized_lms[:, 0], resized_lms[:, 1], 'test_smallgtlm_plot.png')
+	plot_visual(orig_img, orig_lms[:, 0], orig_lms[:, 1], 'test_gtlm_plot.png')
+
+if __name__ == "__main__":
+	main()
